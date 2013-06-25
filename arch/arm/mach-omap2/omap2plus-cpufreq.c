@@ -487,7 +487,7 @@ static ssize_t store_gpu_oc(struct cpufreq_policy *policy, const char *buf, size
         ret2 = opp_enable(dev, gpu_freqs[oc_val]);
         pr_info("[imoseyon] gpu top speed changed from %lu to %lu (%d,%d)\n", 
 		gpu_freqs[prev_oc], gpu_freqs[oc_val], ret1, ret2);
-	
+
 	return size;
 }
 static ssize_t show_uv_mv_table(struct cpufreq_policy *policy, char *buf)
