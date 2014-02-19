@@ -433,4 +433,10 @@ config UNLOCK_180MHZ
 	bool "Unlock 180Mhz"
 	default n
 
+config INTELLI_PLUG
+	bool "Enable intelli-plug cpu hotplug driver"
+	default n
+	help
+	  Generic Intelli-plug cpu hotplug driver for ARM SOCs
+
 endif
