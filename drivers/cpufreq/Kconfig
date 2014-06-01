@@ -198,6 +198,31 @@ config CPU_FREQ_DEFAULT_GOV_INTELLIACTIVE
       loading your cpufreq low-level hardware driver, using the
       'interactive' governor for latency-sensitive workloads.
 
+config CPU_FREQ_DEFAULT_GOV_AGGRESSIVE
+	bool "aggressive"
+	select CPU_FREQ_GOV_AGGRESSIVE
+	help
+	A modified conservative governor.
+
+config CPU_FREQ_DEFAULT_GOV_GALLIMAUFRY
+	bool "gallimaufry"
+	select CPU_FREQ_GOV_GALLIMAUFRY
+	help
+	A modified ondemand governor.
+        This features a 2-phase algo, and
+        tweaks to make it more aggressive.
+
+config CPU_FREQ_DEFAULT_GOV_PEGASUSQ
+	bool "pegasusq"
+	select CPU_FREQ_GOV_PEGASUSQ
+
+config CPU_FREQ_DEFAULT_GOV_LULZACTIVE
+	bool "lulzactive"
+	select CPU_FREQ_GOV_LULZACTIVE
+	select CPU_FREQ_GOV_PERFORMANCE
+	help
+	  Use the CPUFreq governor 'lulzactive' as default.
+
 endchoice
 
 config CPU_FREQ_GOV_PERFORMANCE
@@ -414,6 +439,30 @@ config CPU_FREQ_GOV_INTELLIACTIVE
 
       For details, take a look at linux/Documentation/cpu-freq.
       If in doubt, say N.
+
+config CPU_FREQ_GOV_AGGRESSIVE
+	tristate "'aggressive' governor"
+	depends on CPU_FREQ
+	help
+	  'aggressive' - this governor is a modified conservative.
+	   If in doubt, say N.
+
+config CPU_FREQ_GOV_GALLIMAUFRY
+	tristate "'gallimaufry' governor"
+	depends on CPU_FREQ
+	help
+	  'gallimaufry' - this governor is a modified ondemand.
+	   If in doubt, say N.
+
+config CPU_FREQ_GOV_PEGASUSQ
+	tristate "'pegasusq' cpufreq policy governor"
+
+config CPU_FREQ_GOV_LULZACTIVE
+	tristate "'lulzactive' cpufreq governor"
+	depends on CPU_FREQ
+	help
+	  'lulzactive' - a new interactive governor by Tegrak!
+	   If in doubt, say N.
 
 menu "x86 CPU frequency scaling drivers"
 depends on X86
