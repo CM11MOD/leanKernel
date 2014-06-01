@@ -156,7 +156,7 @@ cleanup:
 }
 
 /**
- * bfq_group_chain_link - link an allocatd group chain to a cgroup hierarchy.
+ * bfq_group_chain_link - link an allocated group chain to a cgroup hierarchy.
  * @bfqd: the queue descriptor.
  * @cgroup: the leaf cgroup to start from.
  * @leaf: the leaf group (to be associated to @cgroup).
@@ -216,7 +216,7 @@ static void bfq_group_chain_link(struct bfq_data *bfqd, struct cgroup *cgroup,
  * to the root have a group associated to @bfqd.
  *
  * If the allocation fails, return the root group: this breaks guarantees
- * but is a safe fallbak.  If this loss becames a problem it can be
+ * but is a safe fallback.  If this loss becomes a problem it can be
  * mitigated using the equivalent weight (given by the product of the
  * weights of the groups in the path from @group to the root) in the
  * root scheduler.
@@ -267,7 +267,8 @@ static void bfq_bfqq_move(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 	resume = !RB_EMPTY_ROOT(&bfqq->sort_list);
 
 	BUG_ON(resume && !entity->on_st);
-	BUG_ON(busy && !resume && entity->on_st && bfqq != bfqd->active_queue);
+	BUG_ON(busy && !resume && entity->on_st &&
+	       bfqq != bfqd->in_service_queue);
 
 	if (busy) {
 		BUG_ON(atomic_read(&bfqq->ref) < 2);
@@ -290,7 +291,7 @@ static void bfq_bfqq_move(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 	if (busy && resume)
 		bfq_activate_bfqq(bfqd, bfqq);
 
-	if (bfqd->active_queue == NULL && !bfqd->rq_in_driver)
+	if (bfqd->in_service_queue == NULL && !bfqd->rq_in_driver)
 		bfq_schedule_dispatch(bfqd);
 }
 
@@ -315,6 +316,9 @@ static struct bfq_group *__bfq_bic_change_cgroup(struct bfq_data *bfqd,
 	struct bfq_queue *sync_bfqq = bic_to_bfqq(bic, 1);
 	struct bfq_entity *entity;
 	struct bfq_group *bfqg;
+	struct bfqio_cgroup *bgrp;
+
+	bgrp = cgroup_to_bfqio(cgroup);
 
 	bfqg = bfq_find_alloc_group(bfqd, cgroup);
 	if (async_bfqq != NULL) {
@@ -352,7 +356,8 @@ static void bfq_bic_change_cgroup(struct bfq_io_cq *bic,
 	struct bfq_data *bfqd;
 	unsigned long uninitialized_var(flags);
 
-	bfqd = bfq_get_bfqd_locked(&(bic->icq.q->elevator->elevator_data), &flags);
+	bfqd = bfq_get_bfqd_locked(&(bic->icq.q->elevator->elevator_data),
+				   &flags);
 	if (bfqd != NULL) {
 		__bfq_bic_change_cgroup(bfqd, bic, cgroup);
 		bfq_put_bfqd_unlock(bfqd, &flags);
@@ -441,11 +446,12 @@ static inline void bfq_reparent_active_entities(struct bfq_data *bfqd,
 	if (!RB_EMPTY_ROOT(&st->active))
 		entity = bfq_entity_of(rb_first(active));
 
-	for (; entity != NULL ; entity = bfq_entity_of(rb_first(active)))
+	for (; entity != NULL; entity = bfq_entity_of(rb_first(active)))
 		bfq_reparent_leaf_entity(bfqd, entity);
 
-	if (bfqg->sched_data.active_entity != NULL)
-		bfq_reparent_leaf_entity(bfqd, bfqg->sched_data.active_entity);
+	if (bfqg->sched_data.in_service_entity != NULL)
+		bfq_reparent_leaf_entity(bfqd,
+			bfqg->sched_data.in_service_entity);
 
 	return;
 }
@@ -477,7 +483,7 @@ static void bfq_destroy_group(struct bfqio_cgroup *bgrp, struct bfq_group *bfqg)
 		/*
 		 * The idle tree may still contain bfq_queues belonging
 		 * to exited task because they never migrated to a different
-		 * cgroup from the one being destroyed now.  Noone else
+		 * cgroup from the one being destroyed now.  No one else
 		 * can access them so it's safe to act without any lock.
 		 */
 		bfq_flush_idle_tree(st);
@@ -502,8 +508,8 @@ static void bfq_destroy_group(struct bfqio_cgroup *bgrp, struct bfq_group *bfqg)
 		BUG_ON(!RB_EMPTY_ROOT(&st->active));
 		BUG_ON(!RB_EMPTY_ROOT(&st->idle));
 	}
-	BUG_ON(bfqg->sched_data.next_active != NULL);
-	BUG_ON(bfqg->sched_data.active_entity != NULL);
+	BUG_ON(bfqg->sched_data.next_in_service != NULL);
+	BUG_ON(bfqg->sched_data.in_service_entity != NULL);
 
 	/*
 	 * We may race with device destruction, take extra care when
@@ -521,7 +527,7 @@ static void bfq_destroy_group(struct bfqio_cgroup *bgrp, struct bfq_group *bfqg)
 	/*
 	 * No need to defer the kfree() to the end of the RCU grace
 	 * period: we are called from the destroy() callback of our
-	 * cgroup, so we can be sure that noone is a) still using
+	 * cgroup, so we can be sure that no one is a) still using
 	 * this cgroup or b) doing lookups in it.
 	 */
 	kfree(bfqg);
@@ -534,10 +540,11 @@ static void bfq_end_raising_async(struct bfq_data *bfqd)
 
 	hlist_for_each_entry_safe(bfqg, pos, n, &bfqd->group_list, bfqd_node)
 		bfq_end_raising_async_queues(bfqd, bfqg);
+	bfq_end_raising_async_queues(bfqd, bfqd->root_group);
 }
 
 /**
- * bfq_disconnect_groups - diconnect @bfqd from all its groups.
+ * bfq_disconnect_groups - disconnect @bfqd from all its groups.
  * @bfqd: the device descriptor being exited.
  *
  * When the device exits we just make sure that no lookup can return
@@ -549,7 +556,7 @@ static void bfq_disconnect_groups(struct bfq_data *bfqd)
 	struct hlist_node *pos, *n;
 	struct bfq_group *bfqg;
 
-	bfq_log(bfqd, "disconnect_groups beginning") ;
+	bfq_log(bfqd, "disconnect_groups beginning");
 	hlist_for_each_entry_safe(bfqg, pos, n, &bfqd->group_list, bfqd_node) {
 		hlist_del(&bfqg->bfqd_node);
 
@@ -565,7 +572,7 @@ static void bfq_disconnect_groups(struct bfq_data *bfqd)
 		rcu_assign_pointer(bfqg->bfqd, NULL);
 
 		bfq_log(bfqd, "disconnect_groups: put async for group %p",
-			bfqg) ;
+			bfqg);
 		bfq_put_async_queues(bfqd, bfqg);
 	}
 }
@@ -594,7 +601,7 @@ static struct bfq_group *bfq_alloc_root_group(struct bfq_data *bfqd, int node)
 	struct bfqio_cgroup *bgrp;
 	int i;
 
-	bfqg = kmalloc_node(sizeof(*bfqg), GFP_KERNEL | __GFP_ZERO, node);
+	bfqg = kzalloc_node(sizeof(*bfqg), GFP_KERNEL, node);
 	if (bfqg == NULL)
 		return NULL;
 
@@ -660,10 +667,25 @@ static int bfqio_cgroup_##__VAR##_write(struct cgroup *cgroup,		\
 		 * Setting the ioprio_changed flag of the entity        \
 		 * to 1 with new_##__VAR == ##__VAR would re-set        \
 		 * the value of the weight to its ioprio mapping.       \
-		 * Set the flag only if necessary.                      \
-		 */                                                     \
+		 * Set the flag only if necessary.			\
+		 */							\
 		if ((unsigned short)val != bfqg->entity.new_##__VAR) {  \
 			bfqg->entity.new_##__VAR = (unsigned short)val; \
+			/*						\
+			 * Make sure that the above new value has been	\
+			 * stored in bfqg->entity.new_##__VAR before	\
+			 * setting the ioprio_changed flag. In fact,	\
+			 * this flag may be read asynchronously (in	\
+			 * critical sections protected by a different	\
+			 * lock than that held here), and finding this	\
+			 * flag set may cause the execution of the code	\
+			 * for updating parameters whose value may	\
+			 * depend also on bfqg->entity.new_##__VAR (in	\
+			 * __bfq_entity_update_weight_prio).		\
+			 * This barrier makes sure that the new value	\
+			 * of bfqg->entity.new_##__VAR is correctly	\
+			 * seen in that code.				\
+			 */						\
 			smp_wmb();                                      \
 			bfqg->entity.ioprio_changed = 1;                \
 		}                                                       \
@@ -704,8 +726,7 @@ static int bfqio_populate(struct cgroup_subsys *subsys, struct cgroup *cgroup)
 				ARRAY_SIZE(bfqio_files));
 }
 
-static struct cgroup_subsys_state *bfqio_create(struct cgroup_subsys *subsys,
-						struct cgroup *cgroup)
+static struct cgroup_subsys_state *bfqio_create(struct cgroup *cgroup)
 {
 	struct bfqio_cgroup *bgrp;
 
@@ -732,55 +753,63 @@ static struct cgroup_subsys_state *bfqio_create(struct cgroup_subsys *subsys,
  * behavior is that a group containing a task that forked using CLONE_IO
  * will not be destroyed until the tasks sharing the ioc die.
  */
-static int bfqio_can_attach(struct cgroup_subsys *subsys, struct cgroup *cgroup,
-			    struct task_struct *tsk)
+static int bfqio_can_attach(struct cgroup *cgroup, struct cgroup_taskset *tset)
 {
+	struct task_struct *task;
 	struct io_context *ioc;
 	int ret = 0;
 
-	/* task_lock() is needed to avoid races with exit_io_context() */
-	task_lock(tsk);
-	ioc = tsk->io_context;
-	if (ioc != NULL && atomic_read(&ioc->nr_tasks) > 1)
-		/*
-		 * ioc == NULL means that the task is either too young or
-		 * exiting: if it has still no ioc the ioc can't be shared,
-		 * if the task is exiting the attach will fail anyway, no
-		 * matter what we return here.
-		 */
-		ret = -EINVAL;
-	task_unlock(tsk);
+	cgroup_taskset_for_each(task, cgroup, tset) {
+		/* task_lock() is needed to avoid races with exit_io_context() */
+		task_lock(task);
+		ioc = task->io_context;
+		if (ioc != NULL && atomic_read(&ioc->nr_tasks) > 1)
+			/*
+			 * ioc == NULL means that the task is either too young or
+			 * exiting: if it has still no ioc the ioc can't be shared,
+			 * if the task is exiting the attach will fail anyway, no
+			 * matter what we return here.
+			 */
+			ret = -EINVAL;
+		task_unlock(task);
+		if (ret)
+			break;
+	}
 
 	return ret;
 }
 
-static void bfqio_attach(struct cgroup_subsys *subsys, struct cgroup *cgroup,
-			 struct cgroup *prev, struct task_struct *tsk)
+static void bfqio_attach(struct cgroup *cgroup, struct cgroup_taskset *tset)
 {
+	struct task_struct *task;
 	struct io_context *ioc;
 	struct io_cq *icq;
 	struct hlist_node *n;
 
-	task_lock(tsk);
-	ioc = tsk->io_context;
-	if (ioc != NULL) {
-		BUG_ON(atomic_long_read(&ioc->refcount) == 0);
-		atomic_long_inc(&ioc->refcount);
+	/*
+	 * IMPORTANT NOTE: The move of more than one process at a time to a
+	 * new group has not yet been tested.
+	 */
+	cgroup_taskset_for_each(task, cgroup, tset) {
+		ioc = get_task_io_context(task, GFP_ATOMIC, NUMA_NO_NODE);
+		if (ioc) {
+			/*
+			 * Handle cgroup change here.
+			 */
+			rcu_read_lock();
+			hlist_for_each_entry_rcu(icq, n, &ioc->icq_list, ioc_node)
+				if (!strncmp(
+					icq->q->elevator->type->elevator_name,
+					"bfq", ELV_NAME_MAX))
+					bfq_bic_change_cgroup(icq_to_bic(icq),
+							      cgroup);
+			rcu_read_unlock();
+			put_io_context(ioc);
+		}
 	}
-	task_unlock(tsk);
-
-	if (ioc == NULL)
-		return;
-
-	rcu_read_lock();
-	hlist_for_each_entry_rcu(icq, n, &ioc->icq_list, ioc_node)
-		bfq_bic_change_cgroup(icq_to_bic(icq), cgroup);
-	rcu_read_unlock();
-
-	put_io_context(ioc, NULL);
 }
 
-static void bfqio_destroy(struct cgroup_subsys *subsys, struct cgroup *cgroup)
+static void bfqio_destroy(struct cgroup *cgroup)
 {
 	struct bfqio_cgroup *bgrp = cgroup_to_bfqio(cgroup);
 	struct hlist_node *n, *tmp;
@@ -865,3 +894,4 @@ static struct bfq_group *bfq_alloc_root_group(struct bfq_data *bfqd, int node)
 	return bfqg;
 }
 #endif
+
