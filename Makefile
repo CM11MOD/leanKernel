@@ -249,12 +249,12 @@ HOSTCFLAGS = -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-poi
 HOSTCXXFLAGS = -O2
 HOSTCC = $(CCACHE) gcc
 HOSTCXX = $(CCACHE) g++
-ifdef CCONFIG_CC_OPTIMIZE_O3
- HOSTCFLAGS = -Wall -W -Wmissing-prototypes -Wno-sign-compare -Wstrict-prototypes -Wno-unused-parameter -Wno-missing-field-initializers -Ofast -fno-delete-null-pointer-checks
- HOSTCXXFLAGS = -Ofast -Wall -W -fno-delete-null-pointer-checks
+ifdef CONFIG_CC_OPTIMIZE_O3
+ HOSTCFLAGS = -Wall -W -Wmissing-prototypes -Wno-sign-compare -Wstrict-prototypes -Wno-unused-parameter -Wno-missing-field-initializers -O3 -fno-delete-null-pointer-checks
+ HOSTCXXFLAGS = -O3 -Wall -W -fno-delete-null-pointer-checks -ffast-math -fsingle-precision-constant
 else
  HOSTCFLAGS = -Wall -W -Wmissing-prototypes -Wno-sign-compare -Wstrict-prototypes -Wno-unused-parameter -Wno-missing-field-initializers -O2 -fno-delete-null-pointer-checks
- HOSTCXXFLAGS = -O2 -Wall -W -fno-delete-null-pointer-checks
+ HOSTCXXFLAGS = -O2 -Wall -W -fno-delete-null-pointer-checks -ffast-math -fsingle-precision-constant
 endif
 # Decide whether to build built-in, modular, or both.
 # Normally, just do built-in.
@@ -367,7 +367,13 @@ ARM_FLAGS         -marm -march=armv7-a -mtune=cortex-a9 \
 CFLAGS_MODULE   = -fno-pic
 AFLAGS_MODULE   =
 LDFLAGS_MODULE  = --strip-debug
-CFLAGS_KERNEL	= 
+CFLAGS_KERNEL	=
+ifdef CONFIG_CC_GRAPHITE_OPTIMIZATION
+CFLAGS_KERNEL += -fgraphite-identity -floop-parallelize-all -ftree-loop-linear -floop-interchange -floop-strip-mine -floop-block -ftree-loop-distribution -ftree-parallelize-loops=2
+endif
+ifdef CONFIG_CC_LINK_TIME_OPTIMIZATION
+CFLAGS_KERNEL += -flto -fno-toplevel-reorder -flto-compression-level=5 -fuse-linker-plugin
+endif 
 AFLAGS_KERNEL	= 
 CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage
 
@@ -385,6 +391,7 @@ KBUILD_CFLAGS   := -Wall -Wno-address -Wundef -Wstrict-prototypes -Wno-trigraphs
 		   -fno-strict-aliasing -fno-common \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
+           -ffast-math -fsingle-precision-constant \
 		   -fno-delete-null-pointer-checks \
 		   -pipe -marm -mfloat-abi=softfp \
 		   -mcpu=cortex-a9 \
@@ -392,20 +399,19 @@ KBUILD_CFLAGS   := -Wall -Wno-address -Wundef -Wstrict-prototypes -Wno-trigraphs
 		   -funswitch-loops -fpredictive-commoning -fgcse-after-reload \
 		   -mno-unaligned-access
 KBUILD_AFLAGS_KERNEL :=
-ifdef CCONFIG_CC_OPTIMIZE_O3
- KBUILD_CFLAGS_KERNEL := -Ofast -mtune=cortex-a9 -march=armv7-a -mfpu=neon -ftree-vectorize -fuse-linker-plugin
+ifdef CONFIG_CC_OPTIMIZE_O3
+ KBUILD_CFLAGS_KERNEL := -Ofast -mtune=cortex-a9 -march=armv7-a -mfpu=neon -ftree-vectorize -fuse-linker-plugin -ffast-math -fsingle-precision-constant
  KBUILD_LDFLAGS_KERNEL := -Wl,--hash-style=gnu -Wl,-O1 -Wl,--as-needed -fuse-linker-plugin -fuse-ld=gold
 else
- KBUILD_CFLAGS_KERNEL := -O2 -mtune=cortex-a9 -march=armv7-a -mfpu=neon -ftree-vectorize
+ KBUILD_CFLAGS_KERNEL := -O2 -mtune=cortex-a9 -march=armv7-a -mfpu=neon -ftree-vectorize -ffast-math -fsingle-precision-constant
 endif
 
 ifdef CONFIG_CC_GRAPHITE_OPTIMIZATION
-KBUILD_CFLAGS += -fgraphite-identity -floop-parallelize-all -floop-interchange -floop-strip-mine \
-                 -floop-block
+KBUILD_CFLAGS += -fgraphite-identity -floop-parallelize-all -ftree-loop-linear -floop-interchange -floop-strip-mine -floop-block -ftree-loop-distribution -ftree-parallelize-loops=2
 endif
 
 ifdef CONFIG_CC_LINK_TIME_OPTIMIZATION
-KBUILD_CFLAGS += -flto -fno-toplevel-reorder -fno-fat-lto-objects -ftlo=2
+KBUILD_CFLAGS += -flto -fno-toplevel-reorder -flto-compression-level=5 -fuse-linker-plugin
 endif
 
 KBUILD_AFLAGS   := -D__ASSEMBLY__
