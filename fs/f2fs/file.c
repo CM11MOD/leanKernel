@@ -135,6 +135,18 @@ int f2fs_sync_file(struct file *file, int datasync)
 
 	trace_f2fs_sync_file_enter(inode);
 
+    /* if fdatasync is triggered, let's do in-place-update */
+    if (datasync)
+        set_inode_flag(fi, FI_NEED_IPU);
+
+    ret = filemap_write_and_wait_range(inode->i_mapping, start, end);
+    if (datasync)
+        clear_inode_flag(fi, FI_NEED_IPU);
+    if (ret) {
+        trace_f2fs_sync_file_exit(inode, need_cp, datasync, ret);
+        return ret;
+    }
+
 	/*
 	 * if there is no written data, don't waste time to write recovery info.
 	 */
