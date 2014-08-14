@@ -742,11 +742,11 @@ static struct freq_attr omap_UV_mV_table = {
 
 static ssize_t show_gpu_clock(struct cpufreq_policy *policy, char *buf) {
 	struct clk *clk = clk_get(NULL, "dpll_per_m7x2_ck");	
-	return sprintf(buf, "%lu\n", clk->rate/1000);
+	return sprintf(buf, "%lu Mhz\n", clk->rate/1000000);
 }
 
 static struct freq_attr gpu_clock = {
-    .attr = {.name = "gpu_cur_freq",
+    .attr = {.name = "gpu_clock",
 	     .mode=0644,
     },
     .show = show_gpu_clock,
@@ -762,7 +762,6 @@ static struct freq_attr *omap_cpufreq_attr[] = {
 	&omap_UV_mV_table,
 #endif
 	&gpu_clock,
-    &iva_clock,
 	NULL,
 };
 
@@ -775,18 +774,6 @@ static struct cpufreq_driver omap_driver = {
 	.exit		= omap_cpu_exit,
 	.name		= "omap2plus",
 	.attr		= omap_cpufreq_attr,
-};
-
-static ssize_t show_iva_clock(struct cpufreq_policy *policy, char *buf) {
-         struct clk *clk = clk_get(NULL, "dpll_iva_m5x2_ck");
-        return sprintf(buf, "%lu\n", clk->rate/1000);
-}
-
-static struct freq_attr iva_clock = {
-    .attr = {.name = "iva_cur_freq",
-             .mode=0644,
-    },
-    .show = show_iva_clock,
 };
 
 static int omap_cpufreq_suspend_noirq(struct device *dev)
