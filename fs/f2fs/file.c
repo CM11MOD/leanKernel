@@ -138,8 +138,6 @@ int f2fs_sync_file(struct file *file, int datasync)
     /* if fdatasync is triggered, let's do in-place-update */
     if (datasync)
         set_inode_flag(fi, FI_NEED_IPU);
-
-    ret = filemap_write_and_wait_range(inode->i_mapping, start, end);
     if (datasync)
         clear_inode_flag(fi, FI_NEED_IPU);
     if (ret) {
