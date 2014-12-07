@@ -916,8 +916,7 @@ void write_meta_page(struct f2fs_sb_info *sbi, struct page *page)
 {
 	struct f2fs_io_info fio = {
 		.type = META,
-		.rw = WRITE_SYNC,
-		.rw_flag = REQ_META | REQ_PRIO
+		.rw = WRITE_SYNC | REQ_META | REQ_PRIO
 	};
 
 	set_page_writeback(page);
@@ -925,17 +924,12 @@ void write_meta_page(struct f2fs_sb_info *sbi, struct page *page)
 }
 
 void write_node_page(struct f2fs_sb_info *sbi, struct page *page,
+		struct f2fs_io_info *fio,
 		unsigned int nid, block_t old_blkaddr, block_t *new_blkaddr)
 {
 	struct f2fs_summary sum;
-	struct f2fs_io_info fio = {
-		.type = NODE,
-		.rw = WRITE_SYNC,
-		.rw_flag = 0
-	};
-
 	set_summary(&sum, nid, 0, 0);
-	do_write_page(sbi, page, old_blkaddr, new_blkaddr, &sum, &fio);
+	do_write_page(sbi, page, old_blkaddr, new_blkaddr, &sum, fio);
 }
 
 void write_data_page(struct page *page, struct dnode_of_data *dn,
@@ -952,7 +946,8 @@ void write_data_page(struct page *page, struct dnode_of_data *dn,
 	do_write_page(sbi, page, dn->data_blkaddr, new_blkaddr, &sum, fio);
 }
 
-void rewrite_data_page(struct page *page, block_t old_blkaddr, struct f2fs_io_info *fio)
+void rewrite_data_page(struct page *page, block_t old_blkaddr,
+					struct f2fs_io_info *fio)
 {
 	struct inode *inode = page->mapping->host;
 	struct f2fs_sb_info *sbi = F2FS_SB(inode->i_sb);
@@ -1018,7 +1013,6 @@ void rewrite_node_page(struct f2fs_sb_info *sbi,
 	struct f2fs_io_info fio = {
 		.type = NODE,
 		.rw = WRITE_SYNC,
-		.rw_flag = 0
 	};
 
 	curseg = CURSEG_I(sbi, type);
@@ -1060,7 +1054,7 @@ void rewrite_node_page(struct f2fs_sb_info *sbi,
 }
 
 void f2fs_wait_on_page_writeback(struct page *page,
-				enum page_type type, bool sync)
+				enum page_type type)
 {
 	struct f2fs_sb_info *sbi = F2FS_SB(page->mapping->host->i_sb);
 	if (PageWriteback(page)) {
@@ -1591,15 +1585,14 @@ static int build_curseg(struct f2fs_sb_info *sbi)
 
 static int ra_sit_pages(struct f2fs_sb_info *sbi, int start, int nrpages)
 {
-	struct address_space *mapping = sbi->meta_inode->i_mapping;
+	struct address_space *mapping = META_MAPPING(sbi);
 	struct page *page;
 	block_t blk_addr, prev_blk_addr = 0;
 	int sit_blk_cnt = SIT_BLK_CNT(sbi);
 	int blkno = start;
 	struct f2fs_io_info fio = {
 		.type = META,
-		.rw = READ_SYNC,
-		.rw_flag = REQ_META | REQ_PRIO
+		.rw = READ_SYNC | REQ_META | REQ_PRIO
 	};
 
 	for (; blkno < start + nrpages && blkno < sit_blk_cnt; blkno++) {
@@ -1655,7 +1648,8 @@ static void build_sit_entries(struct f2fs_sb_info *sbi)
 
 			mutex_lock(&curseg->curseg_mutex);
 			for (i = 0; i < sits_in_cursum(sum); i++) {
-				if (le32_to_cpu(segno_in_journal(sum, i)) == start) {
+				if (le32_to_cpu(segno_in_journal(sum, i))
+								== start) {
 					sit = sit_in_journal(sum, i);
 					mutex_unlock(&curseg->curseg_mutex);
 					goto got_it;

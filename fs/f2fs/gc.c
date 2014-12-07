@@ -45,11 +45,6 @@ static int gc_thread_func(void *data)
 		if (kthread_should_stop())
 			break;
 
-		f2fs_balance_fs(sbi);
-
-		if (!test_opt(sbi, BG_GC))
-			continue;
-
 		/*
 		 * [GC triggering condition]
 		 * 0. GC is not conducted currently.
@@ -163,8 +158,8 @@ static void select_policy(struct f2fs_sb_info *sbi, int gc_type,
 		p->ofs_unit = sbi->segs_per_sec;
 	}
 
-	if (p->max_search > MAX_VICTIM_SEARCH)
-		p->max_search = MAX_VICTIM_SEARCH;
+	if (p->max_search > sbi->max_victim_search)
+		p->max_search = sbi->max_victim_search;
 
 	p->offset = sbi->last_victim[p->gc_mode];
 }
@@ -428,7 +423,7 @@ next_step:
 
 		/* set page dirty and write it */
 		if (gc_type == FG_GC) {
-			f2fs_wait_on_page_writeback(node_page, NODE, true);
+			f2fs_wait_on_page_writeback(node_page, NODE);
 			set_page_dirty(node_page);
 		} else {
 			if (!PageWriteback(node_page))
@@ -523,7 +518,6 @@ static void move_data_page(struct inode *inode, struct page *page, int gc_type)
 	struct f2fs_io_info fio = {
 		.type = DATA,
 		.rw = WRITE_SYNC,
-		.rw_flag = 0,
 	};
 
 	if (gc_type == BG_GC) {
@@ -534,7 +528,7 @@ static void move_data_page(struct inode *inode, struct page *page, int gc_type)
 	} else {
 		struct f2fs_sb_info *sbi = F2FS_SB(inode->i_sb);
 
-		f2fs_wait_on_page_writeback(page, DATA, true);
+		f2fs_wait_on_page_writeback(page, DATA);
 
 		if (clear_page_dirty_for_io(page) &&
 			S_ISDIR(inode->i_mode)) {

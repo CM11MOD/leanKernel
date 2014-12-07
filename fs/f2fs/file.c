@@ -110,14 +110,14 @@ static int get_parent_ino(struct inode *inode, nid_t *pino)
 	return 1;
 }
 
-int f2fs_sync_file(struct file *file, int datasync)
+int f2fs_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	struct inode *inode = file->f_mapping->host;
 	struct f2fs_sb_info *sbi = F2FS_SB(inode->i_sb);
 	int ret = 0;
 	bool need_cp = false;
 	struct writeback_control wbc = {
-		.sync_mode = WB_SYNC_ALL,
+		.sync_mode = WB_SYNC_NONE,
 		.nr_to_write = LONG_MAX,
 		.for_reclaim = 0,
 	};
@@ -126,6 +126,11 @@ int f2fs_sync_file(struct file *file, int datasync)
 		return 0;
 
 	trace_f2fs_sync_file_enter(inode);
+	ret = filemap_write_and_wait_range(inode->i_mapping, start, end);
+	if (ret) {
+		trace_f2fs_sync_file_exit(inode, need_cp, datasync, ret);
+		return ret;
+	}
 
 	/* guarantee free sections for fsync */
 	f2fs_balance_fs(sbi);
@@ -199,7 +204,7 @@ int truncate_data_blocks_range(struct dnode_of_data *dn, int count)
 	raw_node = F2FS_NODE(dn->node_page);
 	addr = blkaddr_in_node(raw_node) + ofs;
 
-	for ( ; count > 0; count--, addr++, dn->ofs_in_node++) {
+	for (; count > 0; count--, addr++, dn->ofs_in_node++) {
 		block_t blkaddr = le32_to_cpu(*addr);
 		if (blkaddr == NULL_ADDR)
 			continue;
@@ -248,21 +253,24 @@ static void truncate_partial_data_page(struct inode *inode, u64 from)
 	f2fs_put_page(page, 1);
 }
 
-static int truncate_blocks(struct inode *inode, u64 from)
+int truncate_blocks(struct inode *inode, u64 from)
 {
 	struct f2fs_sb_info *sbi = F2FS_SB(inode->i_sb);
 	unsigned int blocksize = inode->i_sb->s_blocksize;
 	struct dnode_of_data dn;
 	pgoff_t free_from;
-	int count = 0;
-	int err;
+	int count = 0, err = 0;
 
 	trace_f2fs_truncate_blocks_enter(inode, from);
+
+	if (f2fs_has_inline_data(inode))
+		goto done;
 
 	free_from = (pgoff_t)
 			((from + blocksize - 1) >> (sbi->log_blocksize));
 
 	f2fs_lock_op(sbi);
+
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
 	err = get_dnode_of_data(&dn, free_from, LOOKUP_NODE);
 	if (err) {
@@ -290,7 +298,7 @@ static int truncate_blocks(struct inode *inode, u64 from)
 free_next:
 	err = truncate_inode_blocks(inode, free_from);
 	f2fs_unlock_op(sbi);
-
+done:
 	/* lastly zero out the first data page */
 	truncate_partial_data_page(inode, from);
 
@@ -364,6 +372,10 @@ int f2fs_setattr(struct dentry *dentry, struct iattr *attr)
 
 	if ((attr->ia_valid & ATTR_SIZE) &&
 			attr->ia_size != i_size_read(inode)) {
+		err = f2fs_convert_inline_data(inode, attr->ia_size);
+		if (err)
+			return err;
+
 		truncate_setsize(inode, attr->ia_size);
 		f2fs_truncate(inode);
 		f2fs_balance_fs(F2FS_SB(inode->i_sb));
@@ -447,6 +459,10 @@ static int punch_hole(struct inode *inode, loff_t offset, loff_t len)
 	loff_t off_start, off_end;
 	int ret = 0;
 
+	ret = f2fs_convert_inline_data(inode, MAX_INLINE_DATA + 1);
+	if (ret)
+		return ret;
+
 	pg_start = ((unsigned long long) offset) >> PAGE_CACHE_SHIFT;
 	pg_end = ((unsigned long long) offset + len) >> PAGE_CACHE_SHIFT;
 
@@ -494,6 +510,10 @@ static int expand_inode_data(struct inode *inode, loff_t offset,
 	int ret = 0;
 
 	ret = inode_newsize_ok(inode, (len + offset));
+	if (ret)
+		return ret;
+
+	ret = f2fs_convert_inline_data(inode, offset + len);
 	if (ret)
 		return ret;
 
